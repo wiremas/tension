@@ -30,3 +30,12 @@
 *.exe
 *.out
 *.app
+
+# Build
+build
+
+# MacOS
+.DS_STORE
+
+# Vim
+*.swp
