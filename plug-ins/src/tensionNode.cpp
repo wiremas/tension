@@ -5,9 +5,11 @@ const MString origAttrName( "origShape" );
 const MString deformedAttrName( "deformedShape" );
 
 MTypeId tensionNode::id( 0x00001 );
-MObject tensionNode::origShape;
-MObject tensionNode::deformedShape;
-MObject tensionNode::outShape;
+MObject tensionNode::aOrigShape;
+MObject tensionNode::aDeformedShape;
+MObject tensionNode::aOutShape;
+MObject tensionNode::aColorRamp;
+
 bool tensionNode::isOrigDirty;
 bool tensionNode::isDeformedDirty;
 MDoubleArray tensionNode::origEdgeLenArray;
@@ -16,23 +18,29 @@ MDoubleArray tensionNode::deformedEdgeLenArray;
 MStatus tensionNode::initialize()
 {
     MFnTypedAttribute tAttr;
+    // MFnRampAttribute rAttr;
 
-    origShape = tAttr.create( origAttrName, origAttrName, MFnMeshData::kMesh );
+    aOrigShape = tAttr.create( origAttrName, origAttrName, MFnMeshData::kMesh );
     tAttr.setStorable( true );
 
-    deformedShape = tAttr.create( deformedAttrName, deformedAttrName, MFnMeshData::kMesh );
+    aDeformedShape = tAttr.create( deformedAttrName, deformedAttrName, MFnMeshData::kMesh );
     tAttr.setStorable( true );
 
-    outShape = tAttr.create( "out", "out", MFnMeshData::kMesh );
+    aOutShape = tAttr.create( "out", "out", MFnMeshData::kMesh );
     tAttr.setWritable( false );
     tAttr.setStorable( false );
 
-    addAttribute( origShape );
-    addAttribute( deformedShape );
-    addAttribute( outShape );
+    // aColorRamp = rAttr.createColorRamp( "color", "color" );
+    aColorRamp = MRampAttribute::createColorRamp("color", "color");
 
-    attributeAffects(origShape, outShape);
-    attributeAffects(deformedShape, outShape);
+    addAttribute( aOrigShape );
+    addAttribute( aDeformedShape );
+    addAttribute( aOutShape );
+    addAttribute( aColorRamp );
+
+    attributeAffects( aOrigShape, aOutShape );
+    attributeAffects( aDeformedShape, aOutShape );
+    attributeAffects( aColorRamp, aOutShape );
 
     return MStatus::kSuccess;
 }
@@ -41,12 +49,19 @@ MStatus tensionNode::compute( const MPlug& plug, MDataBlock& data )
 {
     MStatus status;
 
-    if ( plug == outShape )
+    if ( plug == aOutShape )
     {
-        MFnDependencyNode nodeFn(thisMObject());
-        MDataHandle origHandle = data.inputValue( origShape, &status );
-        MDataHandle deformedHandle = data.inputValue( deformedShape, &status );
-        MDataHandle outHandle = data.outputValue( outShape, &status );
+        MObject thisObj = thisMObject();
+        MFnDependencyNode nodeFn( thisObj );
+        MDataHandle origHandle = data.inputValue( aOrigShape, &status );
+        MDataHandle deformedHandle = data.inputValue( aDeformedShape, &status );
+        MDataHandle outHandle = data.outputValue( aOutShape, &status );
+
+        MRampAttribute colorAttribute( thisObj, aColorRamp, &status );
+        float rampPosition = 0.25f;
+        MColor color;
+
+        colorAttribute.getColorAtPosition(rampPosition, color, &status);
 
         if ( isOrigDirty == true )
         {
@@ -60,38 +75,33 @@ MStatus tensionNode::compute( const MPlug& plug, MDataBlock& data )
         outHandle.copy( deformedHandle );
         outHandle.set( deformedHandle.asMesh() );
 
-        if ( origEdgeLenArray.length() == deformedEdgeLenArray.length() )
+        MObject outMesh = outHandle.asMesh();
+        MFnMesh meshFn( outMesh, &status );
+
+        int numVerts = meshFn.numVertices( &status );
+
+        MColorArray vertColors;
+        vertColors.setLength( numVerts );
+        MIntArray vertIds;
+        vertIds.setLength( numVerts );
+
+        for ( int i = 0; i < numVerts; ++i)
         {
-            MObject outMesh = outHandle.asMesh();
-            MFnMesh meshFn( outMesh, &status );
-
-            int numVerts = meshFn.numVertices( &status );
-
-            MColorArray vertColors;
-            vertColors.setLength( numVerts );
-            MIntArray vertIds;
-            vertIds.setLength( numVerts );
-
-            for ( int i = 0; i < numVerts; ++i)
+            double delta;
+            MColor vertColor;
+            if ( origEdgeLenArray.length() == deformedEdgeLenArray.length() )
             {
-                double delta = origEdgeLenArray[i] - deformedEdgeLenArray[i];
-                MColor vertColor;
-                if ( delta > 0 )
-                {
-                    vertColor = MColor( delta, 0, 0 );
-                }
-                else
-                {
-                    vertColor = MColor( 0, -delta, 0 );
-                }
-                vertColors.set( vertColor, i );
-                // cout << vertColor << endl;
-
-                vertIds.set( i, i );
+                delta = ( ( origEdgeLenArray[i] - deformedEdgeLenArray[i] ) / origEdgeLenArray[i] ) + 0.5;
             }
-
-            meshFn.setVertexColors( vertColors, vertIds );
+            else
+            {
+                delta = 0.5;
+            }
+            colorAttribute.getColorAtPosition(delta, vertColor, &status);
+            vertColors.set( vertColor, i );
+            vertIds.set( i, i );
         }
+        meshFn.setVertexColors( vertColors, vertIds );
     }
     data.setClean( plug );
     return MStatus::kSuccess;
@@ -119,31 +129,13 @@ MDoubleArray tensionNode::getEdgeLen( const MDataHandle& meshHandle )
             edgeIter.getLength( length );
             lengthSum += length;
         }
+        lengthSum = lengthSum / connectedEdges.length();
+
         edgeLenArray.append( lengthSum );
         vertIter.next();
     }
 
-    // char buffer[256];
-    // sprintf( buffer, "le %u", edgeLenArray.length());
-    // MGlobal::displayInfo( buffer );
-
     return edgeLenArray;
-}
-
-MStatus tensionNode::setColor( const MObject &outMesh )
-{
-    MStatus status;
-
-    for ( int i = 0; i < origEdgeLenArray.length(); i++)
-    {
-        double scaleFactor = origEdgeLenArray[i] / deformedEdgeLenArray[i] - 1;
-        cout << "scale factor" << scaleFactor << endl;
-
-    }
-
-
-    return status;
-
 }
 
 MStatus tensionNode::setDependentsDirty( const MPlug &dirtyPlug, MPlugArray &affectedPlugs )
