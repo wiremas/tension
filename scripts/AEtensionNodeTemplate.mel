@@ -8,16 +8,4 @@ global proc AEtensionNodeTemplate( string $nodeName )
  
     editorTemplate -addExtraControls;
     editorTemplate -endScrollLayout;
-
-    setAttr ($nodeName + ".color[0].color_Position") 0.0;
-    setAttr ($nodeName + ".color[0].color_Color") -type double3 0 1 0;
-    setAttr ($nodeName + ".color[0].color_Interp") 1;
-
-    setAttr ($nodeName + ".color[1].color_Position") 0.5;
-    setAttr ($nodeName + ".color[1].color_Color") -type double3 0 0 0;
-    setAttr ($nodeName + ".color[1].color_Interp") 1;
-
-    setAttr ($nodeName + ".color[2].color_Position") 1.0;
-    setAttr ($nodeName + ".color[2].color_Color") -type double3 1 0 0;
-    setAttr ($nodeName + ".color[2].color_Interp") 1;
 }
