@@ -15,10 +15,41 @@ bool tensionNode::isDeformedDirty;
 MDoubleArray tensionNode::origEdgeLenArray;
 MDoubleArray tensionNode::deformedEdgeLenArray;
 
+
+MStatus initialize_ramp( MObject parentNode, MObject rampObj, int index, float position, MColor value, int interpolation )
+// initialize color ramp values
+{
+    MStatus status;
+
+    MPlug rampPlug( parentNode, rampObj );
+
+    MPlug elementPlug = rampPlug.elementByLogicalIndex( index, &status );
+
+    MPlug positionPlug = elementPlug.child(0, &status);
+    status = positionPlug.setFloat(position);
+
+    MPlug valuePlug = elementPlug.child(1);
+    status = valuePlug.child(0).setFloat(value.r);
+    status = valuePlug.child(1).setFloat(value.g);
+    status = valuePlug.child(2).setFloat(value.b);
+
+    MPlug interpPlug = elementPlug.child(2);
+    interpPlug.setInt(interpolation);
+
+    return MS::kSuccess;
+}
+
+void tensionNode::postConstructor()
+{
+    MStatus status;
+    initialize_ramp( tensionNode::thisMObject(), aColorRamp, 0, 0.0f, MColor( 0, 1, 0 ), 1 );
+    initialize_ramp( tensionNode::thisMObject(), aColorRamp, 1, 0.5f, MColor( 0, 0, 0 ), 1 );
+    initialize_ramp( tensionNode::thisMObject(), aColorRamp, 2, 1.0f, MColor( 1, 0, 0 ), 1 );
+}
+
 MStatus tensionNode::initialize()
 {
     MFnTypedAttribute tAttr;
-    // MFnRampAttribute rAttr;
 
     aOrigShape = tAttr.create( origAttrName, origAttrName, MFnMeshData::kMesh );
     tAttr.setStorable( true );
@@ -30,7 +61,6 @@ MStatus tensionNode::initialize()
     tAttr.setWritable( false );
     tAttr.setStorable( false );
 
-    // aColorRamp = rAttr.createColorRamp( "color", "color" );
     aColorRamp = MRampAttribute::createColorRamp("color", "color");
 
     addAttribute( aOrigShape );
@@ -52,16 +82,14 @@ MStatus tensionNode::compute( const MPlug& plug, MDataBlock& data )
     if ( plug == aOutShape )
     {
         MObject thisObj = thisMObject();
-        MFnDependencyNode nodeFn( thisObj );
         MDataHandle origHandle = data.inputValue( aOrigShape, &status );
+        MCheckStatus( status, "ERR: getting data handle" );
         MDataHandle deformedHandle = data.inputValue( aDeformedShape, &status );
+        MCheckStatus( status, "ERR: getting data handle" );
         MDataHandle outHandle = data.outputValue( aOutShape, &status );
-
+        MCheckStatus( status, "ERR: getting data handle" );
         MRampAttribute colorAttribute( thisObj, aColorRamp, &status );
-        float rampPosition = 0.25f;
-        MColor color;
-
-        colorAttribute.getColorAtPosition(rampPosition, color, &status);
+        MCheckStatus( status, "ERR: getting color attribute" );
 
         if ( isOrigDirty == true )
         {
@@ -77,13 +105,15 @@ MStatus tensionNode::compute( const MPlug& plug, MDataBlock& data )
 
         MObject outMesh = outHandle.asMesh();
         MFnMesh meshFn( outMesh, &status );
-
+        MCheckStatus( status, "ERR: getting meshfn" );
         int numVerts = meshFn.numVertices( &status );
+        MCheckStatus( status, "ERR: getting vert count" );
 
         MColorArray vertColors;
-        vertColors.setLength( numVerts );
         MIntArray vertIds;
-        vertIds.setLength( numVerts );
+
+        MCheckStatus( vertColors.setLength( numVerts ), "ERR: setting array length" );
+        MCheckStatus( vertIds.setLength( numVerts ), "ERR: setting array length" );
 
         for ( int i = 0; i < numVerts; ++i)
         {
@@ -98,16 +128,19 @@ MStatus tensionNode::compute( const MPlug& plug, MDataBlock& data )
                 delta = 0.5;
             }
             colorAttribute.getColorAtPosition(delta, vertColor, &status);
+            MCheckStatus( status, "ERR: getting color ramp attribute" );
             vertColors.set( vertColor, i );
             vertIds.set( i, i );
         }
-        meshFn.setVertexColors( vertColors, vertIds );
+        MCheckStatus( meshFn.setVertexColors( vertColors, vertIds ), "ERR: setting vertex colors" );
     }
     data.setClean( plug );
     return MStatus::kSuccess;
 }
 
 MDoubleArray tensionNode::getEdgeLen( const MDataHandle& meshHandle )
+// iterate over each vertex, get all connected edge lengths, sum them up and
+// append them to the MDoubleArray that will be returned.
 {
     MStatus status;
     int dummy;
@@ -130,11 +163,9 @@ MDoubleArray tensionNode::getEdgeLen( const MDataHandle& meshHandle )
             lengthSum += length;
         }
         lengthSum = lengthSum / connectedEdges.length();
-
         edgeLenArray.append( lengthSum );
         vertIter.next();
     }
-
     return edgeLenArray;
 }
 
@@ -149,7 +180,6 @@ MStatus tensionNode::setDependentsDirty( const MPlug &dirtyPlug, MPlugArray &aff
     {
         isDeformedDirty = false;
     }
-
     if ( dirtyPlug.partialName() == origAttrName )
     {
         isOrigDirty = true;
@@ -158,7 +188,5 @@ MStatus tensionNode::setDependentsDirty( const MPlug &dirtyPlug, MPlugArray &aff
     {
         isOrigDirty = false;
     }
-
     return MStatus::kSuccess;
-
 }
